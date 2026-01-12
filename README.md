@@ -2,8 +2,6 @@
 
 > A memory system for Claude Code built on Claude Skills - Save and recall conversation context automatically with progressive loading.
 
-**This is a Build in Public project** - We openly share the development process, design decisions, and iteration journey.
-
 [![Node.js](https://img.shields.io/badge/Node.js-18+-green.svg)](https://nodejs.org/)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Claude Skills](https://img.shields.io/badge/Claude-Skills-purple.svg)](https://docs.anthropic.com/)
