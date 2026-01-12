@@ -7,24 +7,27 @@
 ```mermaid
 flowchart TB
     subgraph SkillSystem["Claude Skills System"]
-        SKILL["SKILL.md<br/>description + instructions"]
+        SKILL[".claude/skills/conversation-memory/<br/>SKILL.md"]
     end
     
-    subgraph IndexLayer["Index Layer"]
-        INDEX["memories/index.md"]
-    end
-    
-    subgraph MemoryStorage["Memory Storage"]
-        subgraph Active["active/"]
-            MEM1["mem-001/"]
-            MEM2["mem-002/"]
+    subgraph DataLayer["Data Layer (Separate)"]
+        subgraph IndexLayer["Index"]
+            INDEX[".claude/data/conversation-memory/<br/>memories/index.md"]
         end
-        subgraph Archive["archive/"]
-            MEM3["mem-old/"]
+        
+        subgraph MemoryStorage["Memory Storage"]
+            subgraph Active["active/"]
+                MEM1["mem-001/"]
+                MEM2["mem-002/"]
+            end
+            subgraph Archive["archive/"]
+                MEM3["mem-old/"]
+            end
         end
     end
     
     subgraph Scripts["Management Scripts"]
+        PATHS["paths.js"]
         SAVE["save_memory.js"]
         ACTIVATE["activate_memory.js"]
         ARCHIVE["archive_old_memories.js"]
@@ -33,6 +36,10 @@ flowchart TB
     
     SKILL --> INDEX
     INDEX --> Active
+    PATHS --> SAVE
+    PATHS --> ACTIVATE
+    PATHS --> ARCHIVE
+    PATHS --> UPDATE
     SAVE --> Active
     SAVE --> UPDATE
     ACTIVATE --> Active
@@ -42,6 +49,62 @@ flowchart TB
     ARCHIVE --> UPDATE
     UPDATE --> INDEX
     UPDATE --> SKILL
+```
+
+## Code/Data Separation Design
+
+A core design principle: **skill code and user data are stored separately**.
+
+```
+.claude/
+├── skills/conversation-memory/    # Skill code (template, can be upgraded)
+└── data/conversation-memory/      # User data (persists across upgrades)
+```
+
+### Why Separation?
+
+| Problem | Traditional | With Separation |
+|---------|-------------|-----------------|
+| Skill upgrade | Overwrites memory data | Safe, data untouched |
+| Backup | Must backup entire skill | Data directory only |
+| Migration | Complex path rewriting | Copy data directory |
+| Version control | Mixed code+data commits | Clean code-only commits |
+
+### Path Resolution (`paths.js`)
+
+The `paths.js` module provides unified path resolution:
+
+```javascript
+const { 
+  getSkillDir,     // .claude/skills/conversation-memory/
+  getDataDir,      // .claude/data/conversation-memory/
+  getMemoriesDir,  // .claude/data/conversation-memory/memories/
+  getActiveDir,    // .../memories/active/
+  getArchiveDir,   // .../memories/archive/
+  getIndexFile,    // .../memories/index.md
+  getSkillFile,    // .../SKILL.md
+  ensureDataDir,   // Create data directory structure
+  getConfig        // Get configuration object
+} = require('./paths');
+```
+
+Key function - finding `.claude` root by traversing up:
+
+```javascript
+function findClaudeRoot(startDir = __dirname) {
+  let currentDir = path.resolve(startDir);
+  const root = path.parse(currentDir).root;
+  
+  while (currentDir !== root) {
+    const claudeDir = path.join(currentDir, '.claude');
+    if (fs.existsSync(claudeDir) && fs.statSync(claudeDir).isDirectory()) {
+      return claudeDir;
+    }
+    currentDir = path.dirname(currentDir);
+  }
+  
+  return null;
+}
 ```
 
 ## Four-Layer Loading Mechanism
@@ -57,8 +120,8 @@ The system implements a progressive disclosure pattern with four distinct layers
 **Content**:
 ```yaml
 description: >
-  Memory management. Trigger phrases: save memory, recall discussion.
-  Active keywords: react, hooks, performance, debugging, api-design
+  Conversation memory management. Triggers when user says "save memory"...
+  Active memory keywords: react, hooks, performance
 ```
 
 **When Loaded**: Always - this is part of the skill metadata that Claude loads at conversation start.
@@ -67,7 +130,7 @@ description: >
 
 ### Layer 1: Index Table (On Skill Match)
 
-**File**: `memories/index.md`
+**File**: `.claude/data/conversation-memory/memories/index.md`
 
 **Size**: ~500-2000 characters (depending on active memory count)
 
@@ -75,8 +138,8 @@ description: >
 ```markdown
 ## Index Table
 
-| ID | Topic | Keywords | Date |
-|----|-------|----------|------|
+| Memory ID | Topic | Keywords | Date |
+|-----------|-------|----------|------|
 | mem-20260111-143000 | React Hooks Optimization | hooks, memo, useCallback | 2026-01-11 |
 | mem-20260110-091500 | API Design Discussion | rest, graphql, versioning | 2026-01-10 |
 ```
@@ -87,7 +150,7 @@ description: >
 
 ### Layer 2: Summary (On Demand)
 
-**File**: `memories/active/{mem-id}/summary.md`
+**File**: `.claude/data/conversation-memory/memories/active/{mem-id}/summary.md`
 
 **Size**: ~500-1500 characters per memory
 
@@ -113,7 +176,7 @@ Discussed performance optimization strategies for React hooks...
 
 ### Layer 3: Raw Conversation (For Tracing)
 
-**File**: `memories/active/{mem-id}/conversation.md`
+**File**: `.claude/data/conversation-memory/memories/active/{mem-id}/conversation.md`
 
 **Size**: Variable (can be large)
 
@@ -131,23 +194,41 @@ The `update_index.js` script is the core of the dynamic indexing system.
 
 #### `extractMemoryInfo(summaryPath)`
 
-Extracts metadata from a memory's `summary.md`:
+Extracts metadata from a memory's `summary.md`, supporting both English and Chinese formats:
 
 ```javascript
 function extractMemoryInfo(summaryPath) {
   const content = fs.readFileSync(summaryPath, 'utf8');
   
-  // Extract topic from title
-  const titleMatch = content.match(/^# 对话记忆：(.+)$/m);
-  const topic = titleMatch ? titleMatch[1].trim() : 'Unknown';
+  // Extract topic (title) - support both English and Chinese formats
+  let topic = 'Unknown Topic';
+  const titleMatchEn = content.match(/^# Conversation Memory:\s*(.+)$/m);
+  const titleMatchZh = content.match(/^# 对话记忆：(.+)$/m);
+  if (titleMatchEn) {
+    topic = titleMatchEn[1].trim();
+  } else if (titleMatchZh) {
+    topic = titleMatchZh[1].trim();
+  }
   
-  // Extract keywords
-  const keywordsMatch = content.match(/\*\*关键词\*\*：(.+)$/m);
-  const keywords = keywordsMatch ? keywordsMatch[1].trim() : '';
+  // Extract keywords - support both formats
+  let keywords = '';
+  const keywordsMatchEn = content.match(/\*\*Keywords\*\*:\s*(.+)$/m);
+  const keywordsMatchZh = content.match(/\*\*关键词\*\*：(.+)$/m);
+  if (keywordsMatchEn) {
+    keywords = keywordsMatchEn[1].trim();
+  } else if (keywordsMatchZh) {
+    keywords = keywordsMatchZh[1].trim();
+  }
   
-  // Extract time
-  const timeMatch = content.match(/\*\*时间\*\*：(.+)$/m);
-  const time = timeMatch ? timeMatch[1].trim().split(' ')[0] : '';
+  // Extract time - support both formats
+  let time = '';
+  const timeMatchEn = content.match(/\*\*Time\*\*:\s*(.+)$/m);
+  const timeMatchZh = content.match(/\*\*时间\*\*：(.+)$/m);
+  if (timeMatchEn) {
+    time = timeMatchEn[1].trim().split(' ')[0];
+  } else if (timeMatchZh) {
+    time = timeMatchZh[1].trim().split(' ')[0];
+  }
   
   return { topic, keywords, time };
 }
@@ -155,17 +236,23 @@ function extractMemoryInfo(summaryPath) {
 
 #### `collectAllKeywords(memories)`
 
-Aggregates all keywords from active memories:
+Aggregates all keywords from active memories, filtering out template placeholders:
 
 ```javascript
 function collectAllKeywords(memories) {
   const keywordSet = new Set();
   
+  // Template placeholders to filter out (both English and Chinese)
+  const placeholders = [
+    '{keyword1}', '{keyword2}', '{keyword3}',
+    '{关键词1}', '{关键词2}', '{关键词3}'
+  ];
+  
   for (const mem of memories) {
     if (mem.keywords) {
       const keywords = mem.keywords.split(/[,，]/).map(k => k.trim());
       keywords.forEach(k => {
-        if (k && !k.startsWith('{')) {  // Filter out template placeholders
+        if (k && !placeholders.includes(k)) {
           keywordSet.add(k);
         }
       });
@@ -184,9 +271,14 @@ Generates the `memories/index.md` file:
 function updateIndexFile(memories) {
   const indexTable = generateIndexTable(memories);
   const allKeywords = collectAllKeywords(memories);
+  const keywordsStr = allKeywords.length > 0 
+    ? allKeywords.join(', ')
+    : '(No valid keywords yet)';
   
   const content = `# Active Memory Index
-  
+
+> This file is automatically updated by scripts.
+
 ## Index Table
 
 <!-- INDEX_START -->
@@ -196,7 +288,7 @@ ${indexTable}
 ## Keywords Summary
 
 <!-- KEYWORDS_START -->
-${allKeywords.join(', ')}
+${keywordsStr}
 <!-- KEYWORDS_END -->
 `;
 
@@ -213,11 +305,14 @@ function updateSkillFile(memories) {
   let content = fs.readFileSync(CONFIG.skillFile, 'utf8');
   
   const allKeywords = collectAllKeywords(memories);
-  const keywordsStr = allKeywords.slice(0, 15).join(', ');  // Limit to 15
+  const keywordsStr = allKeywords.length > 0 
+    ? allKeywords.slice(0, 15).join(', ')  // Max 15 keywords
+    : '(no active memories)';
   
+  // Support both English and Chinese formats
   content = content.replace(
-    /Active keywords：.+/,
-    `Active keywords：${keywordsStr}`
+    /Active memory keywords:\s*.+/,
+    `Active memory keywords: ${keywordsStr}`
   );
   
   fs.writeFileSync(CONFIG.skillFile, content, 'utf8');
@@ -230,13 +325,17 @@ function updateSkillFile(memories) {
 sequenceDiagram
     participant User
     participant Script as save_memory.js
+    participant Paths as paths.js
     participant Update as update_index.js
     participant Index as index.md
     participant Skill as SKILL.md
     
     User->>Script: Save memory
+    Script->>Paths: Get data directory paths
+    Paths-->>Script: Return resolved paths
     Script->>Script: Create memory files
     Script->>Update: Call updateIndex()
+    Update->>Paths: Get paths
     Update->>Update: Scan active/ directory
     Update->>Update: Extract metadata from each summary.md
     Update->>Index: Write index table
@@ -251,16 +350,17 @@ sequenceDiagram
 ```mermaid
 flowchart LR
     A[User: Save memory] --> B[Generate timestamp ID]
-    B --> C[Create directory]
-    C --> D[Write summary.md template]
-    D --> E[Write conversation.md template]
-    E --> F[Call update_index.js]
-    F --> G[Index updated]
+    B --> C[ensureDataDir]
+    C --> D[Create memory directory]
+    D --> E[Write summary.md template]
+    E --> F[Write conversation.md template]
+    F --> G[Call update_index.js]
+    G --> H[Index updated]
 ```
 
 **Directory created**:
 ```
-memories/active/mem-20260111-143000/
+.claude/data/conversation-memory/memories/active/mem-20260111-143000/
 ├── summary.md      # Template for user to fill
 └── conversation.md # Template for raw conversation
 ```
@@ -286,15 +386,16 @@ flowchart TB
 
 **Process**:
 ```javascript
-function archiveMemory(memoryName) {
-  const sourcePath = path.join(activeDir, memoryName);
-  const targetPath = path.join(archiveDir, memoryName);
+function archiveMemory(memory) {
+  ensureDataDir();
+  
+  const archiveDir = path.join(CONFIG.memoriesDir, CONFIG.archiveDir);
+  const targetPath = path.join(archiveDir, memory.name);
   
   // Move directory
-  fs.renameSync(sourcePath, targetPath);
+  fs.renameSync(memory.path, targetPath);
   
-  // Update index (memory will be removed)
-  updateIndex();
+  return targetPath;
 }
 ```
 
@@ -302,43 +403,86 @@ function archiveMemory(memoryName) {
 
 ```javascript
 function activateMemory(memoryName) {
-  const sourcePath = path.join(archiveDir, memoryName);
-  const targetPath = path.join(activeDir, memoryName);
+  ensureDataDir();
+  
+  const archivePath = path.join(CONFIG.memoriesDir, CONFIG.archiveDir, memoryName);
+  const activePath = path.join(CONFIG.memoriesDir, CONFIG.activeDir, memoryName);
+  
+  // Check if in archive
+  if (!fs.existsSync(archivePath)) {
+    if (fs.existsSync(activePath)) {
+      console.log(`Memory ${memoryName} is already active`);
+      return;
+    }
+    throw new Error(`Memory ${memoryName} not found`);
+  }
   
   // Move back to active
-  fs.renameSync(sourcePath, targetPath);
+  fs.renameSync(archivePath, activePath);
   
-  // Update index (memory will be added)
+  // Update index
   updateIndex();
 }
 ```
 
 ## File Structure Details
 
+### Repository Structure
+
 ```
-conversation-memory/
-├── SKILL.md                     # Skill definition
-│   ├── YAML frontmatter         # name, description (with keywords)
-│   └── Markdown body            # Instructions for Claude
-│
-├── scripts/
-│   ├── save_memory.js           # Create new memory
-│   ├── activate_memory.js       # Search/activate archived memories
-│   ├── archive_old_memories.js  # Archive old memories
-│   └── update_index.js          # Update index files
-│
-├── references/
-│   ├── summary_template.md      # Template for summary.md
-│   └── conversation_template.md # Template for conversation.md
-│
-└── memories/
-    ├── index.md                 # Dynamic index of active memories
-    ├── active/                  # Currently active memories
-    │   └── mem-{timestamp}/
-    │       ├── summary.md       # Structured summary
-    │       └── conversation.md  # Raw conversation
-    └── archive/                 # Archived (inactive) memories
-        └── mem-{timestamp}/
+conversation-memory-skill/           # Repository root
+├── README.md                        # Main documentation
+├── LICENSE
+├── package.json
+├── docs/
+│   ├── design-evolution.md          # Design evolution history
+│   ├── design-evolution-zh.md       # Chinese version
+│   ├── technical-deep-dive.md       # This document
+│   └── technical-deep-dive-zh.md    # Chinese version
+└── skills/
+    ├── conversation-memory/         # English version
+    │   ├── SKILL.md                 # Skill definition
+    │   ├── scripts/
+    │   │   ├── paths.js             # Path resolution utility
+    │   │   ├── save_memory.js
+    │   │   ├── activate_memory.js
+    │   │   ├── archive_old_memories.js
+    │   │   └── update_index.js
+    │   └── references/
+    │       ├── summary_template.md
+    │       └── conversation_template.md
+    └── conversation-memory-zh/      # Chinese version
+        ├── SKILL.md
+        ├── scripts/
+        └── references/
+```
+
+### Deployed Structure (After Installation)
+
+```
+your-project/
+└── .claude/
+    ├── skills/conversation-memory/  # Skill code (from template)
+    │   ├── SKILL.md
+    │   ├── scripts/
+    │   │   ├── paths.js             # Path resolution utility
+    │   │   ├── save_memory.js
+    │   │   ├── activate_memory.js
+    │   │   ├── archive_old_memories.js
+    │   │   └── update_index.js
+    │   └── references/
+    │       ├── summary_template.md
+    │       └── conversation_template.md
+    │
+    └── data/conversation-memory/    # Data directory (auto-created)
+        └── memories/
+            ├── index.md             # Active memory index
+            ├── active/              # Active memories
+            │   └── mem-{timestamp}/
+            │       ├── summary.md
+            │       └── conversation.md
+            └── archive/             # Archived memories
+                └── mem-{timestamp}/
 ```
 
 ## Performance Considerations
@@ -351,6 +495,7 @@ conversation-memory/
 | Metadata overhead | O(N) | O(1) |
 | Archive effectiveness | None (still loaded) | Complete (not loaded) |
 | Index update | N files | 2 files |
+| Upgrade safety | Risk of data loss | Data preserved |
 
 ### Scaling Characteristics
 
@@ -402,16 +547,16 @@ async function compressMemory(memoryId) {
 
 ### Cross-Project Memory
 
-Share memories between projects:
+Share memories between projects using the data directory:
 
 ```javascript
-// Global memory store
-const GLOBAL_MEMORY_PATH = '~/.claude/global-memories/';
+// Since data is separate from skill code, sharing is simpler
+const SHARED_DATA_PATH = '~/.claude/shared-data/conversation-memory/';
 
-function linkGlobalMemory(memoryId) {
-  const globalPath = path.join(GLOBAL_MEMORY_PATH, memoryId);
-  const localPath = path.join(activeDir, memoryId);
-  fs.symlinkSync(globalPath, localPath);
+function linkSharedMemory(memoryId) {
+  const sharedPath = path.join(SHARED_DATA_PATH, 'memories', 'active', memoryId);
+  const localPath = path.join(getActiveDir(), memoryId);
+  fs.symlinkSync(sharedPath, localPath);
 }
 ```
 
@@ -420,20 +565,27 @@ function linkGlobalMemory(memoryId) {
 ### Index Not Updating
 
 1. Check file permissions
-2. Verify `summary.md` format matches expected patterns
+2. Verify `summary.md` format matches expected patterns (supports both English and Chinese)
 3. Run `node scripts/update_index.js` manually
+4. Check if `.claude` directory exists in workspace
 
 ### Keywords Not Matching
 
 1. Check `SKILL.md` description format
 2. Verify keywords don't contain special characters
-3. Ensure keywords are comma-separated
+3. Ensure keywords are comma-separated (supports both `,` and `，`)
 
 ### Memory Not Found
 
 1. Check if memory is in `archive/` instead of `active/`
 2. Run `node scripts/activate_memory.js --list` to see archived memories
 3. Use `--search` to find by keyword
+
+### Data Directory Issues
+
+1. Run `ensureDataDir()` to create the directory structure
+2. Check if `.claude/data/conversation-memory/` exists
+3. Verify write permissions on the data directory
 
 ---
 

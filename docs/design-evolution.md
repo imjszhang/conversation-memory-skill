@@ -1,4 +1,4 @@
-# Design Evolution: Building a Memory System for Claude
+# Skill is All you Need: Building a Memory System for Claude
 
 > This document tells the story of how this project evolved from a simple idea to its final architecture through iterative design and problem-solving.
 
@@ -158,6 +158,42 @@ Layer 2: summary.md             → Loaded on demand
 Layer 3: conversation.md        → Loaded for full tracing
 ```
 
+## The Human Memory Insight
+
+While building V2, I had another realization that fundamentally shaped the final design:
+
+### Memory Should Be Automatic, Not Commanded
+
+The initial design had multiple commands: `save_memory`, `activate_memory`, `archive_old_memories`. But this felt wrong. 
+
+**Human memory doesn't work this way.** You don't consciously decide "save this to long-term memory" or "archive that old memory." It just happens naturally.
+
+The insight: **A good memory system should require only one action - save.** Everything else should be automatic or unnecessary.
+
+### Embrace Redundancy
+
+Another anti-pattern I noticed was trying to avoid duplicate memories. But again, this isn't how human memory works.
+
+Think about it:
+- You might remember the same event from multiple conversations
+- Each memory has slightly different context and emphasis
+- This redundancy actually helps recall - more paths to the same information
+
+**Redundancy is a feature, not a bug.** Don't deduplicate. Don't merge. Just save.
+
+### Simplify the Workflow
+
+Based on these insights, I removed:
+- `activate_memory.js` - Unnecessary complexity
+- `archive_old_memories.js` - Let memories naturally accumulate
+
+What remains:
+- **One save action** - That's all you need
+- **Keyword-based recall** - Natural triggering, like how a word can bring back memories
+- **Tolerance for imperfection** - Good enough summaries work surprisingly well
+
+This mirrors how human memory actually works: **automatic capture, associative recall, graceful degradation.**
+
 ## V3 Design: Separate Index File
 
 ### The Optimization
@@ -257,8 +293,9 @@ Each version solved a real problem discovered in the previous version:
 The final design mirrors how human memory works:
 - **Keywords trigger recall** - Like how a word can bring back memories
 - **Progressive detail** - Remember the gist first, then details
-- **Use it or lose it** - Active memories stay, inactive ones fade
+- **Automatic, not commanded** - Just save, everything else is natural
 - **Redundancy is OK** - Multiple memories of same topic is fine
+- **Good enough beats perfect** - Imperfect recall still works
 
 ## What's Next?
 
@@ -268,6 +305,16 @@ Potential future improvements:
 - **Cross-project memory** - Share memories between projects
 - **Memory consolidation** - Merge related memories over time
 
+## Get Started
+
+This project is open source. Try it yourself:
+
+🔗 **GitHub**: [https://github.com/imjszhang/conversation-memory-skill](https://github.com/imjszhang/conversation-memory-skill)
+
+Installation is simple - just copy the skill folder to your project's `.claude/skills/` directory and start using it.
+
+Contributions, issues, and feedback are welcome!
+
 ---
 
-*This design journey shows that building effective tools requires not just coding skills, but understanding the platform deeply and iterating based on real-world feedback.*
+*This design journey shows that building effective tools requires not just coding skills, but understanding the platform deeply and iterating based on real-world feedback. Sometimes the best solution isn't to add complexity, but to recognize and use what's already there.*

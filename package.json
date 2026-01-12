@@ -1,0 +1,31 @@
+{
+  "name": "conversation-memory-skill",
+  "version": "1.0.0",
+  "description": "A memory system for Claude Code built on Claude Skills - Save and recall conversation context automatically with progressive loading",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "claude",
+    "claude-code",
+    "skills",
+    "memory",
+    "conversation",
+    "context",
+    "rag"
+  ],
+  "author": "imjszhang",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/imjszhang/conversation-memory-skill.git"
+  },
+  "bugs": {
+    "url": "https://github.com/imjszhang/conversation-memory-skill/issues"
+  },
+  "homepage": "https://github.com/imjszhang/conversation-memory-skill#readme"
+}
