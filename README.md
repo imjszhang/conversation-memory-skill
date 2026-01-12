@@ -2,6 +2,8 @@
 
 > A memory system for Claude Code built on Claude Skills - Save and recall conversation context automatically with progressive loading.
 
+**This is a Build in Public project** - We openly share the development process, design decisions, and iteration journey.
+
 [![Node.js](https://img.shields.io/badge/Node.js-18+-green.svg)](https://nodejs.org/)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Claude Skills](https://img.shields.io/badge/Claude-Skills-purple.svg)](https://docs.anthropic.com/)
@@ -276,6 +278,13 @@ The new structure (`paths.js` + `.claude/data/`) solves these:
 - [Design Evolution](docs/design-evolution.md) - How the design evolved through iterations
 - [Technical Deep Dive](docs/technical-deep-dive.md) - Detailed technical documentation
 
+## Feedback & Community
+
+We welcome any feedback and suggestions! You can reach us through the following channels:
+
+- **GitHub Issues**: [Submit issues or suggestions](https://github.com/imjszhang/conversation-memory-skill/issues)
+- **Twitter/X**: [@imjszhang](https://x.com/imjszhang)
+
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
@@ -286,4 +295,4 @@ MIT License - see [LICENSE](LICENSE) for details.
 
 ---
 
-**Built with Claude Skills** | [Report Issues](https://github.com/imjszhang/conversation-memory-skill/issues)
+**Built with Claude Skills** | [Report Issues](https://github.com/imjszhang/conversation-memory-skill/issues) | [Twitter/X](https://x.com/imjszhang)
